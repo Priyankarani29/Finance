@@ -9,14 +9,15 @@ Original file is located at
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from io import BytesIO
 
-# Page setup
+# Page configuration
 st.set_page_config(page_title="Personal Finance Dashboard", layout="wide")
 st.title("Personal Finance Dashboard")
-st.markdown("Upload your bank transactions CSV to explore your income, expenses, and budget alerts.")
+st.markdown("Upload your bank transactions CSV to analyze income, expenses, budgets, and spending alerts.")
 
-# Upload CSV
-uploaded_file = st.file_uploader("Upload your bank CSV", type="csv")
+# File uploader
+uploaded_file = st.file_uploader("Upload your bank transaction CSV", type="csv")
 
 if uploaded_file:
     # Load data
@@ -24,89 +25,87 @@ if uploaded_file:
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
     df['Month'] = df['Date'].dt.to_period('M')
 
-    # Basic component categorization
-    def categorize(component):
+    # Categorize components
+    def auto_categorize(component):
         component = component.lower()
-        if 'food' in component or 'grocery' in component:
+        if any(x in component for x in ['food', 'grocery', 'supermarket']):
             return 'Food'
         elif 'rent' in component:
             return 'Rent'
-        elif 'netflix' in component or 'movie' in component:
+        elif any(x in component for x in ['netflix', 'movie', 'tv', 'entertain']):
             return 'Entertainment'
-        elif 'uber' in component or 'taxi' in component:
+        elif any(x in component for x in ['uber', 'taxi', 'cab', 'bus']):
             return 'Transport'
         else:
             return 'Other'
 
-    df['Category'] = df['Component'].apply(categorize)
+    df['Category'] = df['Component'].apply(auto_categorize)
 
-    # --- Sidebar filters ---
-    st.sidebar.header("⚙️ Filters & Budgets")
+    # Sidebar filters
+    st.sidebar.header("Filters and Budget Settings")
 
     categories = df['Category'].unique().tolist()
-    selected_categories = st.sidebar.multiselect("Select Categories", categories, default=categories)
+    selected_categories = st.sidebar.multiselect("Filter by Category", categories, default=categories)
 
-    selected_months = st.sidebar.slider("Months to Display", 3, 12, 6)
+    min_date = df['Date'].min()
+    max_date = df['Date'].max()
+    selected_date_range = st.sidebar.date_input("Select Date Range", [min_date, max_date])
 
-    # Budget sliders
-    st.sidebar.subheader(" Monthly Budgets")
-    budget_food = st.sidebar.number_input("Food", value=500)
-    budget_rent = st.sidebar.number_input("Rent", value=1200)
-    budget_ent = st.sidebar.number_input("Entertainment", value=200)
-    budget_trans = st.sidebar.number_input("Transport", value=150)
-    budget_other = st.sidebar.number_input("Other", value=100)
+    # Filter by category and date
+    df = df[df['Category'].isin(selected_categories)]
+    df = df[(df['Date'] >= pd.to_datetime(selected_date_range[0])) & (df['Date'] <= pd.to_datetime(selected_date_range[1]))]
 
-    monthly_budget = {
-        'Food': budget_food,
-        'Rent': budget_rent,
-        'Entertainment': budget_ent,
-        'Transport': budget_trans,
-        'Other': budget_other
-    }
+    # Monthly budget settings
+    st.sidebar.subheader("Monthly Budget (Per Category)")
+    budget_inputs = {}
+    for cat in sorted(categories):
+        budget_inputs[cat] = st.sidebar.number_input(f"{cat} Budget", value=500 if cat == 'Food' else 200)
 
-    # Filter data
-    filtered_df = df[df['Category'].isin(selected_categories)]
-
-    # --- KPIs ---
-    st.markdown("###  Financial Summary")
+    # Key metrics
+    st.markdown("### Financial Summary")
     col1, col2, col3 = st.columns(3)
-    income = filtered_df[filtered_df['Type'] == 'Income']['Value'].sum()
-    expense = filtered_df[filtered_df['Type'] == 'Expense']['Value'].sum()
+    income = df[df['Type'] == 'Income']['Value'].sum()
+    expense = df[df['Type'] == 'Expense']['Value'].sum()
     savings = income - expense
-
     col1.metric("Total Income", f"${income:,.2f}")
     col2.metric("Total Expense", f"${expense:,.2f}")
     col3.metric("Net Savings", f"${savings:,.2f}", delta_color="inverse")
 
-    # --- Monthly Trends ---
-    st.markdown("###  Income vs Expense (Monthly)")
-    trend = filtered_df.groupby(['Month', 'Type'])['Value'].sum().unstack().fillna(0)
-    st.line_chart(trend.tail(selected_months))
+    # Monthly income vs expense trend
+    st.markdown("### Monthly Income and Expense Trends")
+    monthly_trend = df.groupby(['Month', 'Type'])['Value'].sum().unstack().fillna(0)
+    st.line_chart(monthly_trend)
 
-    # --- Budget Alerts ---
-    st.markdown("###  Budget Alerts by Category")
-    expense_df = filtered_df[filtered_df['Type'] == 'Expense']
+    # Budget alert system
+    st.markdown("### Budget Alerts")
+    expense_df = df[df['Type'] == 'Expense']
     monthly_expense = expense_df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
-    budget_df = pd.DataFrame([monthly_budget], index=monthly_expense.index)
+
+    budget_df = pd.DataFrame([budget_inputs], index=monthly_expense.index)
     budget_df = budget_df.reindex(columns=monthly_expense.columns, fill_value=0)
+
     alerts = (monthly_expense > budget_df).astype(int)
 
-    with st.expander(" View Alert Table"):
-        st.dataframe(alerts.style.applymap(lambda v: "background-color: red" if v == 1 else ""), height=300)
+    with st.expander("View Alert Table"):
+        st.dataframe(alerts.style.applymap(lambda x: "background-color: red" if x == 1 else ""))
 
-    # --- Detailed Charts ---
-    st.markdown("### Spend vs Budget by Category")
-    recent_months = monthly_expense.tail(selected_months)
-
+    # Category-level charts
+    st.markdown("### Spending vs Budget by Category")
     for category in selected_categories:
-        if category in recent_months.columns:
+        if category in monthly_expense.columns:
             st.subheader(f"{category}")
             fig, ax = plt.subplots(figsize=(8, 3))
-            ax.plot(recent_months.index.to_timestamp(), recent_months[category], label="Actual Spend", marker='o')
-            ax.axhline(monthly_budget.get(category, 0), color='r', linestyle='--', label="Budget")
+            ax.plot(monthly_expense.index.to_timestamp(), monthly_expense[category], label="Actual Spend", marker='o')
+            ax.axhline(y=budget_inputs[category], color='red', linestyle='--', label="Budget")
             ax.set_title(f"{category} - Spend vs Budget")
             ax.legend()
             st.pyplot(fig)
 
+    # Downloadable report
+    st.markdown("### Export Monthly Summary")
+    summary = df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
+    buffer = BytesIO()
+    summary.to_csv(buffer)
+    st.download_button("Download CSV Summary", buffer.getvalue(), "monthly_summary.csv", "text/csv")
 else:
-    st.info(" Please upload a CSV file to get started.")
+    st.info("Please upload a valid CSV file to get started.")
