@@ -54,8 +54,6 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
-!pip install prophet
-
 import pandas as pd
 from prophet import Prophet
 
