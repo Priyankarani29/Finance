@@ -117,8 +117,6 @@ alerts = (monthly_expense > budget_df).astype(int)
 print("Overspending Alerts (1 = over budget):")
 print(alerts.tail())
 
-!pip install streamlit
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
