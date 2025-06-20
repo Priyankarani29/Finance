@@ -11,24 +11,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from io import BytesIO
 
-# Set up page
-st.set_page_config(page_title="My Finance Dashboard", layout="wide")
-st.title("My Personal Finance Dashboard")
-st.markdown("Track your income, expenses, and budget in a simple, visual way.")
+# Page configuration
+st.set_page_config(page_title="Personal Finance Dashboard", layout="wide")
+st.title("Personal Finance Dashboard")
+st.markdown("Upload your bank CSV file to view spending insights, compare against budget, and track progress.")
 
-# Upload
-uploaded_file = st.file_uploader("Upload your bank transactions CSV file", type="csv")
+# Upload CSV
+uploaded_file = st.file_uploader("Upload your bank transactions CSV", type="csv")
 
 if uploaded_file:
+    # Load and preprocess
     df = pd.read_csv(uploaded_file)
     df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df = df.dropna(subset=['Date'])
+    df.dropna(subset=['Date'], inplace=True)
     df['Month'] = df['Date'].dt.to_period('M')
 
-    # Auto-categorize
+    # Categorization logic
     def categorize(component):
         component = str(component).lower()
-        if any(x in component for x in ['grocery', 'food', 'supermarket']):
+        if any(x in component for x in ['grocery', 'food']):
             return 'Food'
         elif 'rent' in component:
             return 'Rent'
@@ -41,50 +42,50 @@ if uploaded_file:
 
     df['Category'] = df['Component'].apply(categorize)
 
-    # Show uploaded data preview
-    st.markdown("### Uploaded Transactions")
+    # Show preview
+    st.markdown("### Uploaded Data Preview")
     st.dataframe(df[['Date', 'Type', 'Component', 'Value']].head(10))
 
-    # Basic summary
-    st.markdown("### Monthly Income and Expense Trends")
-    monthly = df.groupby(['Month', 'Type'])['Value'].sum().unstack().fillna(0)
-    if not monthly.empty:
-        st.line_chart(monthly)
-    else:
-        st.info("Not enough data for monthly trends.")
+    # Full monthly income/expense chart
+    st.markdown("### Monthly Income vs Expense (All Months)")
+    monthly_trend = df.groupby(['Month', 'Type'])['Value'].sum().unstack().fillna(0)
+    if not monthly_trend.empty:
+        st.line_chart(monthly_trend)
 
-    # Total income & expense
-    income = df[df['Type'] == 'Income']['Value'].sum()
-    expense = df[df['Type'] == 'Expense']['Value'].sum()
-    savings = income - expense
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Income", f"${income:,.2f}")
-    col2.metric("Total Expense", f"${expense:,.2f}")
-    col3.metric("Net Savings", f"${savings:,.2f}", delta_color="inverse")
+    # Monthly expenses by category
+    expense_df = df[df['Type'] == 'Expense']
+    monthly_expense = expense_df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
 
-    # Pie chart - Spending breakdown
-    st.markdown("### Where Your Money Went (Spending Categories)")
-    category_sum = df[df['Type'] == 'Expense'].groupby('Category')['Value'].sum()
+    # Budget definitions
+    budgets = {'Food': 500, 'Rent': 1200, 'Transport': 150, 'Entertainment': 100, 'Other': 200}
+
+    # Month selector
+    available_months = sorted(monthly_expense.index.strftime('%B %Y'))
+    selected_months = st.multiselect("Select months to view detailed alerts and breakdown", available_months, default=available_months[-1:])
+
+    # Convert selection to Period
+    selected_periods = [pd.Period(m, freq='M') for m in monthly_expense.index.strftime('%B %Y') if m in selected_months]
+    filtered_expense = monthly_expense.loc[monthly_expense.index.isin(selected_periods)]
+
+    # Filtered pie chart
+    st.markdown("### Spending Breakdown (Pie Chart)")
+    filtered_df = df[df['Month'].isin(selected_periods) & (df['Type'] == 'Expense')]
+    category_sum = filtered_df.groupby('Category')['Value'].sum()
+
     if not category_sum.empty:
         fig, ax = plt.subplots()
         ax.pie(category_sum, labels=category_sum.index, autopct='%1.1f%%', startangle=90)
         ax.axis('equal')
         st.pyplot(fig)
     else:
-        st.info("No expense data available to plot categories.")
+        st.info("No expense data available for the selected month(s).")
 
-    # Budgets (fixed)
-    budgets = {'Food': 500, 'Rent': 1200, 'Transport': 150, 'Entertainment': 100, 'Other': 200}
-
-    # Monthly expense by category
+    # Budget Alerts
     st.markdown("### Budget Alerts")
-    expense_df = df[df['Type'] == 'Expense']
-    monthly_expense = expense_df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
-
     alerts = []
-    for month in monthly_expense.index:
-        for cat in monthly_expense.columns:
-            spent = monthly_expense.loc[month, cat]
+    for month in filtered_expense.index:
+        for cat in filtered_expense.columns:
+            spent = filtered_expense.loc[month, cat]
             budget = budgets.get(cat, 0)
             if spent > budget:
                 alerts.append(f"In {month.strftime('%B %Y')}, you spent ${spent - budget:.2f} more than your budget in **{cat}**.")
@@ -93,15 +94,15 @@ if uploaded_file:
         for alert in alerts:
             st.warning(alert)
     else:
-        st.success("You stayed within your budget in all categories.")
+        st.success("You stayed within budget for the selected month(s).")
 
-    # Downloadable monthly summary
-    st.markdown("### Download Monthly Summary Report")
-    monthly_summary = df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
-    csv_buffer = BytesIO()
-    monthly_summary.to_csv(csv_buffer)
-    st.download_button("Download CSV Report", csv_buffer.getvalue(), "monthly_summary.csv", "text/csv")
+    # Summary download
+    st.markdown("### Download Monthly Expense Summary (All Months)")
+    summary = df.groupby(['Month', 'Category'])['Value'].sum().unstack().fillna(0)
+    buffer = BytesIO()
+    summary.to_csv(buffer)
+    st.download_button("Download CSV Report", buffer.getvalue(), "monthly_summary.csv", "text/csv")
 
 else:
-    st.info("Upload your CSV to get started. Your file should include columns: Date, Type, Component, and Value.")
+    st.info("Please upload a CSV with columns: Date, Type (Income/Expense), Component, and Value.")
 
