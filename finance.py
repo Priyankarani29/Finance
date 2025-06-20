@@ -9,9 +9,6 @@ Original file is located at
 
 import pandas as pd
 
-# Replace 'filename.csv' with the actual file name you uploaded
-df = pd.read_csv('/content/Personal_Finance.csv')
-print(df.head())
 
 #Display the first few rows
 df.head()
