@@ -2,6 +2,7 @@
 
 An interactive web app to visualize your bank transactions, analyze spending, track budgets, and get alerts — all from a CSV file!
 
+https://finance-urw3ybwvqfdm39rappp658a.streamlit.app/
 ---
 
 ## Features
